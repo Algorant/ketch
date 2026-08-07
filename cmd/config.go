@@ -41,6 +41,9 @@ type configInfo struct {
 	Limit                              int               `json:"limit"`
 	CacheTTL                           string            `json:"cache_ttl"`
 	Browser                            string            `json:"browser,omitempty"`
+	RenderBackend                      string            `json:"render_backend"`
+	Obscura                            string            `json:"obscura,omitempty"`
+	ObscuraStealth                     bool              `json:"obscura_stealth"`
 	CookieFile                         string            `json:"cookie_file,omitempty"`
 	UserAgent                          string            `json:"user_agent,omitempty"`
 	CodeBackend                        string            `json:"code_backend"`
@@ -132,6 +135,9 @@ func buildConfigInfo(c config.Config, path string) configInfo {
 		Limit:                              c.Limit,
 		CacheTTL:                           c.CacheTTL,
 		Browser:                            c.Browser,
+		RenderBackend:                      c.RenderBackend,
+		Obscura:                            c.Obscura,
+		ObscuraStealth:                     c.ObscuraStealth,
 		CookieFile:                         c.CookieFile,
 		UserAgent:                          effectiveUserAgent(c),
 		CodeBackend:                        c.CodeBackend,
@@ -270,6 +276,19 @@ func applyConfigSet(c *config.Config, key, value string) error {
 		return setCacheTTL(c, value)
 	case "browser":
 		c.Browser = value
+	case "render_backend":
+		if value != "obscura" && value != "chromium" {
+			return exitErrf(ExitValidation, "render_backend must be obscura or chromium")
+		}
+		c.RenderBackend = value
+	case "obscura":
+		c.Obscura = value
+	case "obscura_stealth":
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return exitErrf(ExitValidation, "obscura_stealth must be true or false")
+		}
+		c.ObscuraStealth = parsed
 	case "code_backend":
 		c.CodeBackend = value
 	case "docs_backend":

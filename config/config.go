@@ -31,7 +31,10 @@ type Config struct {
 	SerpBaseAPIKeys                    []string          `json:"serpbase_api_keys,omitempty"`
 	Limit                              int               `json:"limit"`
 	CacheTTL                           string            `json:"cache_ttl"`
-	Browser                            string            `json:"browser,omitempty"` // "chrome", "chromium", or absolute path; empty = disabled
+	Browser                            string            `json:"browser,omitempty"`        // Chromium executable; empty = disabled
+	RenderBackend                      string            `json:"render_backend,omitempty"` // "obscura" or "chromium"; default obscura
+	Obscura                            string            `json:"obscura,omitempty"`        // Obscura executable or empty = PATH
+	ObscuraStealth                     bool              `json:"obscura_stealth"`
 	CodeBackend                        string            `json:"code_backend,omitempty"`
 	DocsBackend                        string            `json:"docs_backend,omitempty"`
 	Context7APIKey                     string            `json:"context7_api_key,omitempty"`
@@ -132,6 +135,8 @@ func Defaults() Config {
 		FirecrawlURL:                       DefaultFirecrawlURL,
 		Limit:                              5,
 		CacheTTL:                           "72h",
+		RenderBackend:                      "obscura",
+		ObscuraStealth:                     true,
 		CodeBackend:                        "grepapp",
 		DocsBackend:                        "context7",
 		SourcegraphURL:                     "https://sourcegraph.com",
