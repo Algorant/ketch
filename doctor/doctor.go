@@ -128,6 +128,15 @@ func buildSpecs(cfg *config.Config, client *http.Client) []spec {
 	firecrawlURL := cfg.EffectiveFirecrawlURL()
 	sourcegraphURL := cfg.SourcegraphURL
 	browser := cfg.Browser
+	renderBackend := cfg.RenderBackend
+	if renderBackend == "" {
+		if browser != "" {
+			renderBackend = "chromium"
+		} else {
+			renderBackend = "obscura"
+		}
+	}
+	obscura := cfg.Obscura
 	cookieFile := cfg.CookieFile
 	resolveGithub := cfg.ResolveGithubToken
 
@@ -175,6 +184,12 @@ func buildSpecs(cfg *config.Config, client *http.Client) []spec {
 		}},
 		{"docs", "context7", cfg.DocsBackend == "context7" || c7Key != "", func(ctx context.Context) (Status, string) {
 			return probeContext7(ctx, client, context7APIBase, c7Key)
+		}},
+		{"renderer", renderBackend, renderBackend != "", func(_ context.Context) (Status, string) {
+			if renderBackend == "obscura" {
+				return checkObscura(obscura)
+			}
+			return checkBrowser(browser)
 		}},
 		{"browser", browserBackendName(browser), browser != "", func(_ context.Context) (Status, string) {
 			return checkBrowser(browser)

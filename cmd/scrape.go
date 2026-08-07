@@ -40,7 +40,7 @@ func init() {
 	scrapeCmd.Flags().String("select", "", "CSS selector to extract specific elements (skips readability)")
 	scrapeCmd.Flags().Bool("no-llms-txt", false, "disable automatic /llms.txt detection for bare domains")
 	scrapeCmd.Flags().Int("concurrency", 5, "max concurrent requests for multi-URL scraping")
-	scrapeCmd.Flags().Bool("force-browser", false, "always render via the configured browser, skipping JS-shell auto-detection")
+	scrapeCmd.Flags().Bool("force-browser", false, "always render via the configured renderer, skipping JS-shell auto-detection")
 	scrapeCmd.Flags().String("cookie-file", "", "Netscape cookies.txt jar; matching cookies are sent with each fetch (overrides config cookie_file)")
 	scrapeCmd.Flags().String("user-agent", "", "HTTP User-Agent override (overrides config user_agent; empty falls back to the built-in default)")
 }

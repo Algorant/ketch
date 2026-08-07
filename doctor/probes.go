@@ -516,6 +516,18 @@ func probeContext7(ctx context.Context, client *http.Client, apiBase, apiKey str
 // checkBrowser verifies the configured browser binary actually resolves to a
 // file on disk or PATH. No browser configured is a clean skip — rendering is
 // optional.
+func checkObscura(configured string) (Status, string) {
+	conn, err := scrape.NewObscuraConn(configured, true, "")
+	if err != nil {
+		return StatusMisconfigured, err.Error()
+	}
+	conn.Close()
+	if configured == "" {
+		return StatusOK, "obscura (PATH)"
+	}
+	return StatusOK, configured
+}
+
 func checkBrowser(configured string) (Status, string) {
 	if configured == "" {
 		return StatusSkipped, "not configured (browser rendering disabled; optional)"

@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
@@ -37,6 +38,8 @@ const (
 	SourceHTTPShell = "http_shell"
 	// SourceBrowser — page was rendered via the headless browser.
 	SourceBrowser = "browser"
+	// SourceObscura — page was rendered through the Obscura engine.
+	SourceObscura = "obscura"
 )
 
 // Page represents a scraped web page.
@@ -77,16 +80,19 @@ type FetchResult struct {
 
 // Scraper fetches web pages and extracts content as markdown.
 type Scraper struct {
-	client       *http.Client
-	extractor    *extract.Extractor
-	pdfExtractor extract.PDFExtractor
-	detector     *extract.Detector
-	browserBin   string
-	browserMu    sync.Mutex
-	browser      BrowserConn
-	rewriter     *urlrewrite.Rewriter
-	jar          *cookies.Jar
-	userAgent    string
+	client         *http.Client
+	extractor      *extract.Extractor
+	pdfExtractor   extract.PDFExtractor
+	detector       *extract.Detector
+	browserBin     string
+	renderBackend  string
+	obscuraBin     string
+	obscuraStealth bool
+	browserMu      sync.Mutex
+	browser        BrowserConn
+	rewriter       *urlrewrite.Rewriter
+	jar            *cookies.Jar
+	userAgent      string
 }
 
 // NewWithRewriter creates a Scraper with an optional browser binary and
@@ -95,13 +101,15 @@ type Scraper struct {
 // built-in SPA markers; use NewWithConfig to add operator-configured markers.
 func NewWithRewriter(browserBin string, rw *urlrewrite.Rewriter) *Scraper {
 	return &Scraper{
-		client:       httpx.Default(),
-		extractor:    extract.New(),
-		pdfExtractor: extract.NewPDFExtractor(),
-		detector:     extract.NewDetector(nil),
-		browserBin:   browserBin,
-		rewriter:     rw,
-		userAgent:    DefaultUserAgent(),
+		client:         httpx.Default(),
+		extractor:      extract.New(),
+		pdfExtractor:   extract.NewPDFExtractor(),
+		detector:       extract.NewDetector(nil),
+		browserBin:     browserBin,
+		renderBackend:  "chromium",
+		obscuraStealth: true,
+		rewriter:       rw,
+		userAgent:      DefaultUserAgent(),
 	}
 }
 
@@ -138,6 +146,20 @@ func NewWithBrowserConn(conn BrowserConn, rw *urlrewrite.Rewriter) *Scraper {
 func (s *Scraper) HasBrowser() bool {
 	s.browserMu.Lock()
 	defer s.browserMu.Unlock()
+	if s.browser != nil {
+		return true
+	}
+	if s.renderBackend == "obscura" {
+		bin := s.obscuraBin
+		if bin == "" {
+			bin = os.Getenv("KETCH_OBSCURA")
+		}
+		if bin == "" {
+			bin = "obscura"
+		}
+		_, err := exec.LookPath(bin)
+		return err == nil
+	}
 	return s.browserBin != ""
 }
 
@@ -159,11 +181,24 @@ func (s *Scraper) Close() {
 func (s *Scraper) getBrowser() BrowserConn {
 	s.browserMu.Lock()
 	defer s.browserMu.Unlock()
-	if s.browserBin == "" {
-		return nil
-	}
 	if s.browser != nil {
 		return s.browser
+	}
+	if s.renderBackend == "obscura" {
+		bin := s.obscuraBin
+		if bin == "" {
+			bin = os.Getenv("KETCH_OBSCURA")
+		}
+		conn, err := NewObscuraConn(bin, s.obscuraStealth, "")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warn: obscura init failed: %v\n", err)
+			return nil
+		}
+		s.browser = conn
+		return conn
+	}
+	if s.browserBin == "" {
+		return nil
 	}
 	bin, err := ResolveBrowserBin(s.browserBin)
 	if err != nil {
@@ -190,6 +225,19 @@ func (s *Scraper) Scrape(ctx context.Context, rawURL string) (*Page, string, err
 
 	content, err := s.FetchContent(ctx, fetchURL)
 	if err != nil {
+		if isRendererRetryError(err) {
+			if html, source := s.browserFetchOrWarn(ctx, fetchURL, ""); source != SourceHTTPShell {
+				result, extractErr := s.extractor.Extract(fetchURL, html)
+				if extractErr != nil {
+					return nil, "", fmt.Errorf("extraction failed for %s: %w", fetchURL, extractErr)
+				}
+				page := &Page{URL: rawURL, Title: result.Title, Markdown: result.Markdown}
+				if fetchURL != rawURL {
+					page.FetchedURL = fetchURL
+				}
+				return page, source, nil
+			}
+		}
 		return nil, "", err
 	}
 
@@ -232,6 +280,19 @@ func (s *Scraper) scrapeConditional(ctx context.Context, rawURL, etag, lastModif
 	fetchURL := s.Rewrite(rawURL)
 	content, headers, notModified, err := s.fetchContent(ctx, fetchURL, etag, lastModified)
 	if err != nil {
+		if isRendererRetryError(err) {
+			if html, source := s.browserFetchOrWarn(ctx, fetchURL, ""); source != SourceHTTPShell {
+				result, extractErr := s.extractor.Extract(fetchURL, html)
+				if extractErr != nil {
+					return nil, fmt.Errorf("extraction failed for %s: %w", fetchURL, extractErr)
+				}
+				page := &Page{URL: rawURL, Title: result.Title, Markdown: result.Markdown, ContentHash: ContentHash(result.Markdown)}
+				if fetchURL != rawURL {
+					page.FetchedURL = fetchURL
+				}
+				return &FetchResult{Page: page, RawHTML: html, ContentType: "text/html", Source: source}, nil
+			}
+		}
 		return nil, err
 	}
 	if notModified {
@@ -277,7 +338,7 @@ func (s *Scraper) scrapeConditional(ctx context.Context, rawURL, etag, lastModif
 		if detection == "likely_shell" {
 			html, source = s.browserFetchOrWarn(ctx, fetchURL, html)
 			doc = nil // rendered HTML needs a fresh parse downstream
-			if source == SourceBrowser {
+			if source == SourceBrowser || source == SourceObscura {
 				contentType = "text/html"
 			}
 		}
@@ -348,17 +409,30 @@ func (s *Scraper) MaybeBrowserFetch(ctx context.Context, rawURL, html string) (s
 	return s.browserFetchOrWarn(ctx, rawURL, html)
 }
 
-// browserFetchOrWarn returns the rendered html with SourceBrowser on success,
+// browserFetchOrWarn returns the rendered html with the configured renderer's
+// source on success,
 // or the original (shell) html with SourceHTTPShell if the browser is
 // unavailable or fails. Called only when detection said "likely_shell", so
 // returning SourceHTTP here would be a lie — the entry would round-trip as
 // "plain page" and never get retried once a browser is configured.
+func isRendererRetryError(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "http 403") || strings.Contains(message, "403 forbidden")
+}
+
+func (s *Scraper) renderSource() string {
+	if s.renderBackend == "obscura" {
+		return SourceObscura
+	}
+	return SourceBrowser
+}
+
 func (s *Scraper) browserFetchOrWarn(ctx context.Context, rawURL, html string) (string, string) {
 	browser := s.getBrowser()
 	if browser != nil {
 		rendered, err := browser.Fetch(ctx, rawURL)
 		if err == nil {
-			return rendered, SourceBrowser
+			return rendered, s.renderSource()
 		}
 		fmt.Fprintf(os.Stderr, "warn: browser fallback failed for %s: %v\n", rawURL, err)
 	} else if !s.HasBrowser() {
@@ -372,6 +446,21 @@ func (s *Scraper) browserFetchOrWarn(ctx context.Context, rawURL, html string) (
 // True when the cached entry is a known unrendered JS shell, or when it
 // predates source tracking and a browser is now available (one-time migration
 // for pre-source caches where the entry might be unrendered shell garbage).
+// CacheStaleForRenderer reports whether a cached result was produced by a
+// different configured renderer and should be refreshed.
+func (s *Scraper) CacheStaleForRenderer(source string) bool {
+	if source == SourceHTTPShell {
+		return true
+	}
+	if source == "" && s.HasBrowser() {
+		return true
+	}
+	if source != SourceHTTP && source != s.renderSource() && s.HasBrowser() {
+		return true
+	}
+	return false
+}
+
 func CacheStaleForBrowser(source string, hasBrowser bool) bool {
 	if source == SourceHTTPShell {
 		return true

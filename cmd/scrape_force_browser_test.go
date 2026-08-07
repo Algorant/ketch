@@ -109,9 +109,10 @@ func TestForceBrowserSelectAppliesToRenderedDOM(t *testing.T) {
 // TestForceBrowserWithoutBrowserIsPrecondition — --force-browser with no
 // configured browser is an ExitPrecondition error, never a silent HTTP fallback.
 func TestForceBrowserWithoutBrowserIsPrecondition(t *testing.T) {
-	prev := cfg.Browser
+	prevBrowser, prevBackend := cfg.Browser, cfg.RenderBackend
 	cfg.Browser = ""
-	t.Cleanup(func() { cfg.Browser = prev })
+	cfg.RenderBackend = "chromium"
+	t.Cleanup(func() { cfg.Browser, cfg.RenderBackend = prevBrowser, prevBackend })
 
 	srv, _ := staticServer(t)
 	cmd := buildScrapeCmd([]string{"scrape", "--force-browser", srv.URL})

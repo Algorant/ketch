@@ -56,6 +56,12 @@ func NewFromConfig(cfg *config.Config) (*Scraper, error) {
 		return nil, fmt.Errorf("invalid url_rewrites: %w", err)
 	}
 	scraper := NewWithConfig(cfg.Browser, rw, cfg.SPAMarkers)
+	scraper.renderBackend = cfg.RenderBackend
+	if scraper.renderBackend == "" {
+		scraper.renderBackend = "obscura"
+	}
+	scraper.obscuraBin = cfg.Obscura
+	scraper.obscuraStealth = cfg.ObscuraStealth
 	ua, err := normalizeUserAgent(cfg.UserAgent)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user_agent: %w", err)
@@ -104,7 +110,7 @@ func warnLooseCookiePerms(path string) {
 func (s *Scraper) CachedScrape(ctx context.Context, pc PageCache, url string) (*Page, error) {
 	key := s.CacheKey(s.Rewrite(url))
 	if pc != nil {
-		if page, source := pc.Get(key); page != nil && !CacheStaleForBrowser(source, s.HasBrowser()) {
+		if page, source := pc.Get(key); page != nil && !s.CacheStaleForRenderer(source) {
 			return page, nil
 		}
 	}
@@ -130,7 +136,7 @@ func (s *Scraper) CachedScrape(ctx context.Context, pc PageCache, url string) (*
 func (s *Scraper) CachedScrapeRaw(ctx context.Context, pc PageCache, url string) (*Page, string, string, error) {
 	key := s.CacheKey(s.Rewrite(url))
 	if pc != nil {
-		if rawHTML, source, page := pc.GetRaw(key); page != nil {
+		if rawHTML, source, page := pc.GetRaw(key); page != nil && !s.CacheStaleForRenderer(source) {
 			return page, rawHTML, source, nil
 		}
 	}
@@ -178,7 +184,7 @@ func (s *Scraper) CachedScrapeForce(ctx context.Context, pc PageCache, url strin
 		return nil, ErrNoBrowser
 	}
 	if pc != nil {
-		if page, source := pc.Get(key); page != nil && source == SourceBrowser {
+		if page, source := pc.Get(key); page != nil && source == s.renderSource() {
 			return page, nil
 		}
 	}
@@ -187,7 +193,7 @@ func (s *Scraper) CachedScrapeForce(ctx context.Context, pc PageCache, url strin
 		return nil, err
 	}
 	if pc != nil {
-		pc.Put(key, page, SourceBrowser)
+		pc.Put(key, page, s.renderSource())
 	}
 	return page, nil
 }
@@ -209,7 +215,7 @@ func (s *Scraper) CachedScrapeRawForce(ctx context.Context, pc PageCache, url st
 		return nil, "", "", ErrNoBrowser
 	}
 	if pc != nil {
-		if rawHTML, source, page := pc.GetRaw(key); page != nil && source == SourceBrowser {
+		if rawHTML, source, page := pc.GetRaw(key); page != nil && source == s.renderSource() {
 			return page, rawHTML, source, nil
 		}
 	}
@@ -218,9 +224,9 @@ func (s *Scraper) CachedScrapeRawForce(ctx context.Context, pc PageCache, url st
 		return nil, "", "", err
 	}
 	if pc != nil {
-		pc.PutRaw(key, page, SourceBrowser, html)
+		pc.PutRaw(key, page, s.renderSource(), html)
 	}
-	return page, html, SourceBrowser, nil
+	return page, html, s.renderSource(), nil
 }
 
 // ScrapeMarkdown picks the markdown fetch path. Forced-browser HTML renders;

@@ -124,6 +124,20 @@ func envSpecs() []envSpec {
 			},
 		},
 		stringSpec("browser", func(c *Config) *string { return &c.Browser }),
+		stringSpec("render_backend", func(c *Config) *string { return &c.RenderBackend }),
+		stringSpec("obscura", func(c *Config) *string { return &c.Obscura }),
+		{
+			key:  "obscura_stealth",
+			prev: func(c *Config) string { return strconv.FormatBool(c.ObscuraStealth) },
+			apply: func(c *Config, v string) error {
+				value, err := strconv.ParseBool(v)
+				if err != nil {
+					return fmt.Errorf("must be true or false, got %q", v)
+				}
+				c.ObscuraStealth = value
+				return nil
+			},
+		},
 		stringSpec("code_backend", func(c *Config) *string { return &c.CodeBackend }),
 		stringSpec("docs_backend", func(c *Config) *string { return &c.DocsBackend }),
 		{
