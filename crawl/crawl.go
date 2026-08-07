@@ -198,7 +198,7 @@ func (c *crawler) processItem(item queueItem) {
 	// Cache hit: use cached page, skip fetch entirely, unless the entry
 	// is an unrendered JS-shell extraction and a browser is now available.
 	// Use --no-cache to force re-fetch for change detection.
-	if cached != nil && !scrape.CacheStaleForBrowser(cachedSource, c.scraper.HasBrowser()) {
+	if cached != nil && !c.scraper.CacheStaleForRenderer(cachedSource) {
 		c.fn(Result{
 			Page:   cached,
 			Depth:  item.depth,

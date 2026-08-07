@@ -163,7 +163,10 @@ ketch reads defaults from `~/.config/ketch/config.json`. Flags always override c
 ketch config init                          # write a default config file
 ketch config set backend searxng           # set a default backend
 ketch config set searxng_url http://my-searxng:8080
-ketch config set browser chrome            # enable browser fallback for JS-rendered pages
+ketch config set render_backend obscura    # use Obscura for rendered-page fallback
+ketch config set obscura /usr/bin/obscura   # optional; empty uses PATH
+ketch config set obscura_stealth true       # enable Obscura stealth transport
+ketch config set browser chrome             # optional Chromium fallback/comparison
 ketch config                               # print effective config + available backends
 ketch config path                          # print the config file path
 ```
@@ -185,7 +188,9 @@ Precedence is **CLI flag > `KETCH_*` env > config file > built-in default**. Not
 - `url_rewrites` and `spa_markers` are file-only (their JSON/regex values don't survive env quoting).
 - `ketch config` (show) reports an `env_overrides` section, so you can always see which effective values came from the environment; `ketch config set` writes only file values and never persists env-derived ones.
 - Invalid env values (e.g. `KETCH_LIMIT=abc`) fail loudly on commands that use config, naming the offending variable; `ketch version` and `ketch config set/path` still work.
-- Secret `KETCH_*` vars are stripped from the environment of spawned subprocesses (headless browser, external PDF converter).
+- Secret `KETCH_*` vars are stripped from the environment of spawned subprocesses (Obscura, Chromium, external PDF converter).
+
+Renderer keys include `render_backend` (`obscura` or `chromium`), `obscura` (executable path; empty uses `PATH`), `obscura_stealth`, and the optional Chromium `browser` path. Obscura is the default renderer for JavaScript fallback. It runs a bounded one-shot process, returns rendered HTML, and does not require Chromium or Node.js. Obscura has no real layout or paint engine, so screenshots, PDFs, service workers, and layout-dependent automation remain outside this renderer's scope.
 
 Other configurable keys include per-backend API keys (`brave_api_key`, `brave_api_keys` for multi-key rotation, `exa_api_key`, `firecrawl_api_key`, `keenable_api_key`, `tavily_api_key`, `serpbase_api_key`, `context7_api_key`, `github_token`), `firecrawl_url` / `sourcegraph_url` (self-hosted overrides), `cache_ttl`, `url_rewrites` (regex rewrite rules applied before fetch), `spa_markers` (extra JS-shell detection tokens), `cookie_file` (see below), and the optional external PDF converter command/timeout. Multiple keys per provider are picked randomly per request to spread rate limits. See the [config reference](https://1broseidon.github.io/ketch/) for the full list.
 
@@ -216,7 +221,7 @@ Point an agent's system prompt at ketch instead of teaching it individual search
 ```markdown
 Use `ketch` for external research — web pages, OSS code, library docs.
 - `ketch search "query"` / `ketch search "query" --scrape` for web results with optional full content (add `--multi` to federate across backends and rank-fuse)
-- `ketch scrape <url> [url...]` for clean markdown from one or more URLs
+- `ketch scrape <url> [url...]` for clean markdown from one or more URLs; direct HTTP automatically retries browser-relevant HTTP 403 responses through the configured renderer
 - `ketch extract` for already-fetched/piped HTML (`curl ... | ketch extract`) — no fetch, no cache, no browser
 - `ketch code "query" --lang go` for real OSS code with repo/line context
 - `ketch docs "query" --library /org/repo` for version-aware library docs
